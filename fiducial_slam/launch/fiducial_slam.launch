@@ -9,14 +9,13 @@
   <arg name="publish_6dof_pose" default="false"/>
   <arg name="pose_publish_rate" default="20"/>
 
-  <arg name="systematic_error" default="0.1"/>
-
-  <arg name="covariance_diagonal" default="0.1, 0.1, 0.1, 0.1, 0.1, 0.1"/>
+  <arg name="systematic_error" default="0.05"/> 
+  <arg name="covariance_diagonal" default="0.3 0.3 0.3 0.3 0.3 0.3 "/>
 
   <node pkg="tf" type="static_transform_publisher" name="base_link_to_camera" 
-    args="0.1 0 0.2 0 0 0 base_footprint camera_link 100" />
+  args="0.1 0 1.15 -1.5708 0 -1.5708 base_footprint camera_color_optical_frame 100" />
 
-  <node type="fiducial_slam" pkg="fiducial_slam" output="screen"
+  <node type="fiducial_slam" pkg="fiducial_slam" output="screen" 
     name="fiducial_slam">
     
     <param name="map_file" value="$(env HOME)/.ros/slam/map.txt" />
@@ -31,9 +30,14 @@
     <param name="pose_publish_rate" value="$(arg pose_publish_rate)" />
     
     <param name="sum_error_in_quadrature" value="true"/>
-    
     <param name="multi_marker_reinference" value="true"/> 
 
+    <param name="mapping_mode" value="true" />
+    <param name="do_pose_estimation" value="true" />
+    
+    <param name="min_fiducial_observations" value="1" /> 
+    
+    <param name="max_variance" value="1" />
     <param name="systematic_error" value="$(arg systematic_error)"/>
     <rosparam param="covariance_diagonal" subst_value="True">$(arg covariance_diagonal)</rosparam>
     
