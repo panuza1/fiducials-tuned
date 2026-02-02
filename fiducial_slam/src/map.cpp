@@ -6,10 +6,10 @@
  * modification, are permitted provided that the following conditions are met:
  *
  * 1. Redistributions of source code must retain the above copyright notice,
- *    this list of conditions and the following disclaimer.
+ * this list of conditions and the following disclaimer.
  * 2. Redistributions in binary form must reproduce the above copyright notice,
- *    this list of conditions and the following disclaimer in the documentation
- *    and/or other materials provided with the distribution.
+ * this list of conditions and the following disclaimer in the documentation
+ * and/or other materials provided with the distribution.
  *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
  * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
@@ -148,7 +148,9 @@ Map::Map(ros::NodeHandle &nh) : tfBuffer(ros::Duration(30.0)) {
 }
 
 // Update map with a set of observations
-
+// ====================================================================================
+// EDITED FUNCTION: อนุญาตให้ Map ได้แม้ไม่เห็น Marker เก่า (ใช้ Odom ช่วยแปะ Marker ใหม่)
+// ====================================================================================
 void Map::update(std::vector<Observation> &obs, const ros::Time &time) {
     ROS_INFO("Updating map with %d observations. Map has %d fiducials", (int)obs.size(),
              (int)fiducials.size());
@@ -165,8 +167,39 @@ void Map::update(std::vector<Observation> &obs, const ros::Time &time) {
         tf2::Stamped<TransformWithVariance> T_mapCam;
         T_mapCam.frame_id_ = mapFrame;
 
-        if (updatePose(obs, time, T_mapCam) > 0 && obs.size() > 1 && !readOnly) {
-            updateMap(obs, time, T_mapCam);
+        // 1. พยายามหาตำแหน่งหุ่นจาก Marker เก่า (วิธีปกติที่แม่นยำ)
+        int numEsts = updatePose(obs, time, T_mapCam);
+
+        if (numEsts > 0) {
+            // CASE A: รู้ตำแหน่งตัวเองจาก Marker เก่า
+            // แก้ไข: จากเดิมต้อง > 1 ให้เป็น > 0 (เจอตัวเดียวก็ Map ได้ ถ้าเรามั่นใจตำแหน่งตัวเอง)
+            if (obs.size() > 0 && !readOnly) {
+                updateMap(obs, time, T_mapCam);
+            }
+        } 
+        else if (obs.size() > 0 && !readOnly) {
+            // CASE B: ไม่รู้ตำแหน่งตัวเอง (ไม่เห็น Marker เก่า) แต่เห็น Marker ใหม่
+            // ใช้ TF (Odom) เพื่อหาตำแหน่งกล้องคร่าวๆ แล้วสั่ง updateMap เลย
+            // หมายเหตุ: วิธีนี้จะไม่ updatePose หุ่นยนต์ (เพื่อป้องกัน Feedback loop / หุ่นหมุน)
+            // แต่จะใช้เพื่อ "แปะ" Marker ใหม่ลง Map เท่านั้น
+
+            tf2::Transform T_mapCam_tf;
+            // ใช้ obs[0] เพื่อหา frame id ของกล้อง
+            if (lookupTransform(mapFrame, obs[0].T_camFid.frame_id_, time, T_mapCam_tf)) {
+                 
+                 // ดึงค่า Origin และ Rotation จาก TF
+                 tf2::Vector3 trans = T_mapCam_tf.getOrigin();
+                 tf2::Quaternion rot = T_mapCam_tf.getRotation();
+                 
+                 // สร้าง TransformWithVariance (กำหนดค่าความแปรปรวน 0.1 หรือค่าที่เหมาะสม)
+                 TransformWithVariance twv(trans, rot, 0.1);
+                 T_mapCam.setData(twv);
+                 
+                 ROS_INFO("Blind Mapping: Adding new marker using Odom/TF estimate!");
+                 
+                 // สั่ง Map Marker ใหม่โดยใช้ตำแหน่งจาก Odom
+                 updateMap(obs, time, T_mapCam);
+            }
         }
     }
 
@@ -442,8 +475,8 @@ void Map::autoInit(const std::vector<Observation> &obs, const ros::Time &time) {
         int idx = findClosestObs(obs);
 
         if (idx == -1) {
-	     ROS_WARN("Could not find a fiducial to initialize map from");
-	     return;
+     ROS_WARN("Could not find a fiducial to initialize map from");
+     return;
         }
         const Observation &o = obs[idx];
         originFid = o.fid;
