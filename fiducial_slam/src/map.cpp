@@ -148,9 +148,6 @@ Map::Map(ros::NodeHandle &nh) : tfBuffer(ros::Duration(30.0)) {
 }
 
 // Update map with a set of observations
-// ====================================================================================
-// EDITED FUNCTION: อนุญาตให้ Map ได้แม้ไม่เห็น Marker เก่า (ใช้ Odom ช่วยแปะ Marker ใหม่)
-// ====================================================================================
 void Map::update(std::vector<Observation> &obs, const ros::Time &time) {
     ROS_INFO("Updating map with %d observations. Map has %d fiducials", (int)obs.size(),
              (int)fiducials.size());
@@ -167,7 +164,6 @@ void Map::update(std::vector<Observation> &obs, const ros::Time &time) {
         tf2::Stamped<TransformWithVariance> T_mapCam;
         T_mapCam.frame_id_ = mapFrame;
 
-        // 1. พยายามหาตำแหน่งหุ่นจาก Marker เก่า (วิธีปกติที่แม่นยำ)
         int numEsts = updatePose(obs, time, T_mapCam);
 
         if (numEsts > 0) {
@@ -179,9 +175,6 @@ void Map::update(std::vector<Observation> &obs, const ros::Time &time) {
         } 
         else if (obs.size() > 0 && !readOnly) {
             // CASE B: ไม่รู้ตำแหน่งตัวเอง (ไม่เห็น Marker เก่า) แต่เห็น Marker ใหม่
-            // ใช้ TF (Odom) เพื่อหาตำแหน่งกล้องคร่าวๆ แล้วสั่ง updateMap เลย
-            // หมายเหตุ: วิธีนี้จะไม่ updatePose หุ่นยนต์ (เพื่อป้องกัน Feedback loop / หุ่นหมุน)
-            // แต่จะใช้เพื่อ "แปะ" Marker ใหม่ลง Map เท่านั้น
 
             tf2::Transform T_mapCam_tf;
             // ใช้ obs[0] เพื่อหา frame id ของกล้อง
