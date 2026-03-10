@@ -1,0 +1,260 @@
+\documentclass[10pt]{article}
+\usepackage{geometry}
+\geometry{
+  a4paper,
+  top=2.5cm,
+  bottom=4cm,
+  left=2.5cm,
+  right=2.5cm
+}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhead{}
+\fancyhead[L]{Project Design Document\\}
+\fancyhead[R]{\includegraphics[height=2cm]{KMUTT_FIBO.png}}
+\setlength{\headheight}{2.2cm}
+\setlength{\headsep}{0.5cm}
+
+\begin{document}
+\begin{raggedright}
+\textbf{FAR:PA Design Document}\par
+\textbf{King Mongkut's University of Technology Thonburi}\par
+\textbf{FIBO Technovation - Institute of Field RoBOtics (FIBO)}\par
+\textbf{Title: } Simultaneous Localization and Mapping Using Fiducial Markers\par
+\textbf{Submitted by: } Panupong Chaichun\par
+\end{raggedright}
+
+\section{Introduction}
+
+\subsection{Origin and necessity}
+
+% [FIGURE: Two photos of the robot in a corridor with ArUco markers visible on the walls]
+\begin{figure}[h]
+\centering
+% \includegraphics[width=8cm]{robot-corridor.jpg}
+\end{figure}
+
+In the world of robotics, moving in a straight line is not as easy as it seems. Robots often use \textbf{wheel odometry}, which counts how much the wheels have rotated to estimate how far they have moved. However, in reality, wheels can slip, and small errors build up over time. This accumulated error is called \textbf{drift}. The farther the robot travels, the bigger the difference becomes between where the robot thinks it is and where it actually is. Eventually, the robot can lose its way and may run into obstacles.
+
+Therefore, we need ``eyes'' and ``signposts.'' We mount cameras on the robot to look for ArUco Markers that we place on the walls. These markers act as precise reference points, allowing the robot to reposition itself correctly as soon as it sees a marker.
+
+\subsection{Objectives}
+\begin{itemize}
+    \item To build an absolute localization system, develop a software architecture that moves beyond relying only on wheel odometry and instead uses ArUco markers on walls as reference points to eliminate the robot's accumulated drift problem.
+    \item To develop SLAM systems for real-world environments, integrate cameras with a fiducial SLAM system to create accurate and reusable maps that can later be used in localization mode.
+    \item To evaluate localization performance in a simulated environment, test how accurately the robot can estimate its position compared to the ground truth, and check whether the system can repeatedly produce consistent results under different lighting conditions and viewing angles.
+\end{itemize}
+
+\subsection{Scope}
+
+This project focuses on demonstrating the effectiveness of a system that allows a robot to determine its own position using reference markers. The scope of the project includes the following:
+
+\begin{enumerate}
+    \item Field Testing and Labeling (Environment and Setup)
+    \begin{itemize}
+        \item Testing will be conducted in a building with corridors, placing ArUco Markers on walls for the robot to use as ``points of reference'' to calculate its position.
+        \item The scope will cover measuring the distance of the labels, determining the size of the label to match the program, and ensuring that the camera can clearly see the labels.
+    \end{itemize}
+    \item Mapping and Map Saving for Localization
+    \begin{itemize}
+        \item The robot first explores the environment to build its own fiducial map. The map is then saved so the robot can remember the environment and return to the same positions whenever it starts operating again.
+    \end{itemize}
+    \item Using a Camera as the Main Sensor
+    \begin{itemize}
+        \item This project aims to demonstrate that a robot can determine its position using only a camera and wall markers. Lidar is intentionally not used, in order to evaluate how effective the fiducial system is under the defined conditions.
+    \end{itemize}
+\end{enumerate}
+
+\subsection{Deliverables}
+
+To ensure that the development and troubleshooting of the SLAM mapping and localization system can be practically applied or further developed, this project provides two main deliverables as follows:
+
+\begin{enumerate}
+    \item Optimized Software Repository
+    \begin{itemize}
+        \item This repository contains a forked and refined version of the fiducials package (branch: noetic-devel), modified to improve system stability and address issues found in the original implementation.
+    \end{itemize}
+\end{enumerate}
+
+\section{System Architecture}
+
+\begin{enumerate}
+    \item This project utilizes the fiducials ROS package on ROS Noetic (Ubuntu 20.04) to implement the visual SLAM system. The system architecture consists of key nodes that process camera data and estimate the robot's pose based on fiducial markers.
+
+    \item Software Overview
+
+    The core software relies on the fiducials package, which detects ArUco markers (similar to QR codes) to determine the robot's position and orientation. The system is designed to support markers placed on walls, ceilings, or floors.
+
+    \item Key Nodes Description
+
+    The system operation is divided into the following sub-packages:
+    \begin{itemize}
+        \item \texttt{aruco\_detect}: This node is responsible for processing images from the camera to detect ArUco markers. It calculates the 3D transform (pose) from the camera to each detected fiducial marker and publishes this data for the SLAM system.
+        \item \texttt{fiducial\_slam}: This node receives fiducial poses from \texttt{aruco\_detect} and combines them to build a map of markers or localize the robot. It operates in two primary modes:
+        \begin{itemize}
+            \item Mapping Mode (\texttt{read\_only\_map} = false): The system continuously adds new markers to the map.
+            \item Localization Mode (\texttt{read\_only\_map} = true): The system uses the existing map to estimate the robot's pose without modifying the map.
+        \end{itemize}
+        \item \texttt{fiducial\_msgs}: Defines the specific ROS message types used for communication between the \texttt{aruco\_detect} and \texttt{fiducial\_slam} nodes.
+    \end{itemize}
+\end{enumerate}
+
+\section{First Principle Analysis}
+
+\begin{enumerate}
+    \item The Ambiguity of the PnP Algorithm
+
+    The fiducial SLAM system relies on the Perspective-n-Point (PnP) algorithm to convert 2D camera images into a 3D pose estimate of the robot.
+    \begin{itemize}
+        \item Problem: When the camera observes an ArUco marker from steep angles or under reflective lighting conditions, uncertainty can occur in estimating depth and yaw.
+        \item The Effect: This uncertainty causes small fluctuations, or jitter, in the estimated position even when the robot is stationary. This high-frequency noise directly affects the robot's orientation estimation and leads to unstable motion calculations.
+    \end{itemize}
+
+    \item The Conflict in Sensor Fusion (EKF Conflict)
+
+    The main issue is not caused by vision jitter alone, but by how the Extended Kalman Filter (EKF) responds to that noisy data.
+    \begin{itemize}
+        \item The Conflict: The EKF combines information from odometry (wheel sensors) and vision (camera data), using covariance values to determine how much each sensor should be trusted.
+        \item The Failure Mode: In the default configuration, the covariance assigned to vision data is set too low, meaning the system trusts camera measurements too much. As a result, even small jitter in the camera input causes the EKF to immediately adjust the robot's estimated pose. These rapid corrections produce abnormally high computed velocities, commonly observed as velocity spikes or sudden jumps in the estimated position.
+        \item The Solution Principle: To fix this issue, the covariance on problematic axes is increased (e.g., up to 1,000,000,000.0), as implemented in the fiducials-tuned repository. This makes the EKF trust odometry more in the short term and reduces the effect of camera noise, resulting in smoother and more stable position estimates.
+    \end{itemize}
+\end{enumerate}
+
+\section{Experimental Results}
+
+% [FIGURE: Screenshot of RViz showing the fiducial SLAM map with markers and robot trajectory]
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{FIBO-SoWA/visual.png}
+\end{figure}
+
+\begin{enumerate}
+    \item System Parameter Tuning
+
+    To improve system robustness and maintain stable operation, several key configuration parameters in the launch file were adjusted:
+    \begin{itemize}
+        \item High Uncertainty (e.g., 1,000,000,000 (this is for testing)): The maximum variance is increased so the system can continue operating even when camera measurements become unstable or noisy (jitter).
+        \item Static Map Mode: The \texttt{read\_only\_map} mode is enabled so previously mapped markers act as fixed reference points, preventing map drift.
+        \item Time Synchronization: The \texttt{future\_date\_transforms} parameter is adjusted to keep /tf position data continuous and prevent timing gaps in the system.
+    \end{itemize}
+
+    \item Real-Time Mapping Optimization
+
+    The mapping logic was further improved to make map creation faster and more reliable during operation:
+    \begin{itemize}
+        \item Immediate Registration: The system is modified to record new markers into the map immediately after detection (detect-and-map).
+        \item Reduced Dependency: Previous constraints requiring confirmation from earlier markers are removed, allowing mapping to continue smoothly without stopping or returning to previously seen markers.
+    \end{itemize}
+
+    \item Experimental Conclusion
+
+    Experimental results in real environments show that the improved system can localize the robot accurately while maintaining smooth motion. The system works reliably in both mapping and localization modes. The results confirm that this approach can serve as an effective alternative to LiDAR for indoor robot localization.
+\end{enumerate}
+
+\section{System Architecture}
+
+\begin{enumerate}
+    \item This project utilizes the fiducials ROS package on ROS Noetic (Ubuntu 20.04) to implement the visual SLAM system. The system architecture consists of key nodes that process camera data and estimate the robot's pose based on fiducial markers.
+
+    \item Software Overview
+
+    The core software relies on the fiducials package, which detects ArUco markers (similar to QR codes) to determine the robot's position and orientation. The system is designed to support markers placed on walls, ceilings, or floors.
+
+    \item Key Nodes Description
+
+    The system operation is divided into the following sub-packages:
+    \begin{itemize}
+        \item \texttt{aruco\_detect}: This node is responsible for processing images from the camera to detect ArUco markers. It calculates the 3D transform (pose) from the camera to each detected fiducial marker and publishes this data for the SLAM system.
+        \item \texttt{fiducial\_slam}: This node receives fiducial poses from \texttt{aruco\_detect} and combines them to build a map of markers or localize the robot. It operates in two primary modes:
+        \begin{itemize}
+            \item Mapping Mode (\texttt{read\_only\_map} = false): The system continuously adds new markers to the map.
+            \item Localization Mode (\texttt{read\_only\_map} = true): The system uses the existing map to estimate the robot's pose without modifying the map.
+        \end{itemize}
+        \item \texttt{fiducial\_msgs}: Defines the specific ROS message types used for communication between the \texttt{aruco\_detect} and \texttt{fiducial\_slam} nodes.
+    \end{itemize}
+\end{enumerate}
+
+\appendix
+\section{User Manual}
+
+\subsection{Installation and Setup}
+
+\subsubsection*{Installing fiducials on ROS Noetic (Ubuntu 20.04)}
+
+To install the package from source, execute the following commands in your terminal:
+
+\subsubsection*{Clone the Repository and Dependencies:}
+
+\begin{verbatim}
+cd ~/your_workspace/src
+git clone -b noetic-devel https://github.com/UbiquityRobotics/fiducials.git
+sudo rosdep init
+rosdep update
+rosdep install --from-paths src --ignore-src -r -y
+\end{verbatim}
+
+\subsubsection*{Build the Package:}
+
+\begin{verbatim}
+cd ~/your_workspace
+catkin_make
+source devel/setup.bash
+\end{verbatim}
+
+\subsubsection*{Installing Intel RealSense Camera Libraries}
+
+If using an Intel RealSense camera, install the required drivers:
+
+\begin{verbatim}
+sudo apt-get install librealsense2-dkms librealsense2-utils
+roslaunch realsense2_camera rs_camera.launch
+\end{verbatim}
+
+\subsection{Usage Instructions}
+
+\subsubsection*{Running aruco\_detect}
+
+This node processes camera images to find markers.
+
+\textbf{Command:}
+
+\begin{verbatim}
+roslaunch aruco_detect aruco_detect.launch
+\end{verbatim}
+
+\textbf{Key Parameters:}
+\begin{itemize}
+    \item \texttt{dictionary}: Specifies the type of ArUco dictionary used (Default: 7).
+    \item \texttt{fiducial\_len}: The side length of the physical marker (in meters).
+    \item \texttt{camera}: The camera namespace (Default: /camera/color).
+\end{itemize}
+
+\subsubsection*{Running fiducial\_slam}
+
+This node performs the mapping and localization.
+
+\textbf{Command:}
+
+\begin{verbatim}
+roslaunch fiducial_slam fiducial_slam.launch
+\end{verbatim}
+
+\textbf{Operational Modes:}
+\begin{itemize}
+    \item \textbf{For Map Building:} Set parameter \texttt{read\_only\_map} = false.
+    \item \textbf{For Localization:} Set parameter \texttt{read\_only\_map} = true.
+\end{itemize}
+
+\textbf{Important Note:}
+
+A directory is required to store the map file. If it does not exist, create it manually:
+
+\begin{verbatim}
+mkdir -p ~/.ros/slam/
+\end{verbatim}
+
+The map file will be saved as \texttt{map.txt} in this directory.
+
+\end{document}
